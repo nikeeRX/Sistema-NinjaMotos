@@ -70,8 +70,7 @@ def iniciar_banco():
     for col in colunas_novas:
         try: cur.execute(f"ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS {col};")
         except: pass
-        
-    # Aumenta o tamanho do campo status_sessao caso já exista para comportar "Aguardando atendimento"
+
     try: cur.execute("ALTER TABLE agenda ALTER COLUMN status_sessao TYPE VARCHAR(50);")
     except: pass
 
@@ -89,11 +88,13 @@ def enviar_email_boas_vindas(destinatario, nome_paciente):
     remetente = os.getenv("EMAIL_CLINICA", "nao-configurado")
     senha = os.getenv("SENHA_EMAIL_CLINICA", "nao-configurado")
     if remetente == "nao-configurado": return
+    
     msg = MIMEMultipart()
     msg['From'] = remetente
     msg['To'] = destinatario
     msg['Subject'] = "Bem-vindo(a) à Ser Perene"
     msg.attach(MIMEText(f"Olá, {nome_paciente}!\n\nSeu cadastro foi recebido com sucesso e está em análise. Você receberá um aviso assim que for liberado.", 'plain'))
+    
     try:
         server = smtplib.SMTP('smtp.gmail.com', 587)
         server.starttls()
@@ -131,7 +132,6 @@ TEMPLATE_UNICO = """
         .alerta { background-color: #E8D5D0; color: #3A261D; padding: 15px; border-radius: 8px; margin-bottom: 20px; font-weight: bold; text-align: center; font-family: 'Arial'; }
         .mensagem-box { background-color: #F9F4F3; padding: 15px; border-radius: 8px; margin-bottom: 10px; border-left: 4px solid #E8D5D0; display: flex; justify-content: space-between; align-items: center; }
         .data-msg { font-size: 0.75rem; color: #888; display: block; margin-top: 5px; font-family: 'Arial'; }
-        .foto-perfil { width: 50px; height: 50px; border-radius: 50%; object-fit: cover; vertical-align: middle; margin-right: 10px; border: 2px solid #3A261D; }
         .link-cadastro { display: block; text-align: center; margin-top: 20px; font-family: 'Arial', sans-serif; color: #3A261D; text-decoration: none; font-size: 0.9rem; }
     </style>
 </head>
@@ -248,7 +248,7 @@ def cadastro(perfil):
     return render_template_string(TEMPLATE_UNICO, titulo=f"Cadastro", conteudo=html, script_popup="")
 
 # ==========================================
-# NOVO: MÓDULO DE VÍDEO (JITSI MEET)
+# MÓDULO DE VÍDEO (JITSI MEET)
 # ==========================================
 @app.route('/sessao_video/<int:sessao_id>', methods=['GET', 'POST'])
 def sala_video(sessao_id):
@@ -258,18 +258,15 @@ def sala_video(sessao_id):
     conn = get_db_connection()
     cur = conn.cursor()
     
-    # Ação do Botão "Finalizar Sessão" da Psicóloga
     if request.method == 'POST' and request.form.get('acao') == 'finalizar':
         cur.execute("UPDATE agenda SET status_sessao = 'Atendimento realizado' WHERE id = %s;", (sessao_id,))
         conn.commit()
         cur.close(); conn.close()
         return redirect(url_for(f"area_{perfil}", user_id=uid))
 
-    # Buscando dados da sessão
     cur.execute("SELECT data_hora, status_sessao, paciente_id, psicologa_id FROM agenda WHERE id = %s;", (sessao_id,))
     sessao = cur.fetchone()
     
-    # Se o paciente entrou na sala, atualiza o status automaticamente para "Aguardando atendimento"
     if perfil == 'paciente' and sessao[1] == 'Agendado':
         cur.execute("UPDATE agenda SET status_sessao = 'Aguardando atendimento' WHERE id = %s;", (sessao_id,))
         conn.commit()
@@ -279,15 +276,26 @@ def sala_video(sessao_id):
 
     cur.close(); conn.close()
     
+    # Diferencia o botão de acordo com quem está na sala (Admin, Psicóloga ou Paciente)
+    btn_acao = ""
+    texto_teste = ""
+    if perfil == 'psicologa':
+        btn_acao = '<input type="hidden" name="acao" value="finalizar"><button type="submit" class="btn" style="background-color: #990000; color: white; border: none;">Encerrar e Marcar como Atendimento Realizado</button>'
+    elif perfil == 'admin':
+        btn_acao = f'<a href="/admin" class="btn btn-outline" style="width: 100%;">Sair do Modo de Teste (Admin)</a>'
+        texto_teste = " - MODO TESTE (ADMIN)"
+    else:
+        btn_acao = f'<a href="/paciente/{uid}" class="btn btn-outline" style="width: 100%;">Sair da Sala de Espera</a>'
+
     html = f"""
     <div class="card" style="max-width: 1000px; margin: 0 auto; text-align: center;">
-        <h2 style="margin-bottom: 5px;">Sessão por Vídeo</h2>
-        <p style="margin-bottom: 20px; font-family: Arial;">Status atual: <strong style="color: #4CAF50;">{status_atual}</strong></p>
+        <h2 style="margin-bottom: 5px; color: {'#990000' if perfil == 'admin' else '#3A261D'};">Sessão por Vídeo{texto_teste}</h2>
+        <p style="margin-bottom: 20px; font-family: Arial;">Status da Sessão: <strong style="color: #4CAF50;">{status_atual}</strong></p>
         
         <div id="meet" style="width: 100%; height: 500px; background-color: #111; border-radius: 8px; overflow: hidden; margin-bottom: 20px; border: 2px solid #E8D5D0;"></div>
         
         <form method="POST">
-            {'<input type="hidden" name="acao" value="finalizar"><button type="submit" class="btn" style="background-color: #990000; color: white; border: none;">Encerrar e Marcar como Atendimento Realizado</button>' if perfil == 'psicologa' else f'<a href="/paciente/{uid}" class="btn btn-outline" style="width: 100%;">Sair da Sala de Espera</a>'}
+            {btn_acao}
         </form>
     </div>
     
@@ -321,13 +329,11 @@ def area_paciente(user_id):
             cur.execute("INSERT INTO mensagens (remetente_id, destinatario_id, conteudo) VALUES (%s, %s, %s);", (user_id, request.form.get('psi_id'), request.form.get('msg')))
         conn.commit()
 
-    # Checagem de Pop-ups (Plano de Ação novo)
     cur.execute("SELECT id, mensagem FROM notificacoes_popup WHERE usuario_id = %s AND lida = FALSE LIMIT 1;", (user_id,))
     alerta = cur.fetchone()
     script_popup = f"<script>window.onload = function() {{ alert('AVISO:\\n\\n{alerta[1]}'); }};</script>" if alerta else ""
     if alerta: cur.execute("UPDATE notificacoes_popup SET lida = TRUE WHERE id = %s;", (alerta[0],)); conn.commit()
     
-    # Próxima Sessão / Agenda
     cur.execute("SELECT id, data_hora, status_sessao FROM agenda WHERE paciente_id = %s AND status_sessao != 'Atendimento realizado' ORDER BY data_hora ASC LIMIT 1;", (user_id,))
     prox_sessao = cur.fetchone()
     
@@ -335,7 +341,6 @@ def area_paciente(user_id):
     plano = cur.fetchone()
     cur.close(); conn.close()
     
-    # Renderização da Próxima Sessão com Módulo de Vídeo
     html_sessao = ""
     if prox_sessao:
         html_sessao = f"""
@@ -380,11 +385,9 @@ def area_psicologa(user_id):
             msg_sucesso = "Plano criado e paciente notificado!"
         conn.commit()
 
-    # Pacientes para os selects
     cur.execute("SELECT id, nome FROM usuarios WHERE tipo_perfil = 'paciente' AND status = 'ativo';")
     opts = "".join([f"<option value='{p[0]}'>{p[1]}</option>" for p in cur.fetchall()])
     
-    # Lista de Sessões Agendadas
     cur.execute("""
         SELECT a.id, u.nome, a.data_hora, a.status_sessao 
         FROM agenda a JOIN usuarios u ON a.paciente_id = u.id 
@@ -419,7 +422,6 @@ def area_psicologa(user_id):
 
     <div class="card">
         <h2>Atualizar Plano e Tarefas</h2>
-        <p style="font-family:Arial; font-size:0.8rem;">Gera um alerta de Pop-up no celular do paciente.</p>
         <form method="POST"><input type="hidden" name="acao" value="novo_plano">
             <select name="paciente_id" required><option value="">Paciente...</option>{opts}</select>
             <textarea name="plano" placeholder="Plano principal" required></textarea>
@@ -431,24 +433,79 @@ def area_psicologa(user_id):
     """
     return render_template_string(TEMPLATE_UNICO, titulo="Psicóloga", conteudo=html, script_popup="")
 
-@app.route('/admin')
+@app.route('/admin', methods=['GET', 'POST'])
 def area_admin():
     conn = get_db_connection()
     cur = conn.cursor()
+
+    if request.method == 'POST':
+        acao = request.form.get('acao')
+        if acao == 'campanha':
+            cur.execute("INSERT INTO recados_gerais (autor_id, tipo, mensagem) VALUES ((SELECT id FROM usuarios WHERE tipo_perfil='admin' LIMIT 1), 'Campanha', %s);", (request.form.get('mensagem'),))
+            conn.commit()
+
     cur.execute("SELECT id, nome, email, contato, tipo_perfil, crp FROM usuarios WHERE status = 'pendente';")
     pendentes = cur.fetchall()
-    html_pendentes = "".join([f"<div style='border-bottom: 1px solid #E8D5D0; padding: 15px 0; display: flex; justify-content: space-between; align-items: center;'><div><strong>{p[1]}</strong><br><span style='font-size: 0.85rem; font-family: Arial; color: #5c3e30; font-weight: bold;'>Solicitou acesso como: {p[4].capitalize()}</span><br><span style='font-size: 0.8rem; font-family: Arial;'>{p[2]} | {p[3]}</span></div><form action='/aprovar/{p[0]}' method='POST' style='margin:0;'><button type='submit' class='btn btn-small'>Aprovar Cadastro</button></form></div>" for p in pendentes]) or "<p>Nenhum cadastro aguardando.</p>"
+    html_pendentes = "".join([f"<div style='border-bottom: 1px solid #E8D5D0; padding: 15px 0; display: flex; justify-content: space-between; align-items: center;'><div><strong>{p[1]}</strong><br><span style='font-size: 0.85rem; font-family: Arial; color: #5c3e30; font-weight: bold;'>Solicitou acesso como: {p[4].capitalize()}</span><br><span style='font-size: 0.8rem; font-family: Arial;'>{p[2]} | {p[3]}</span></div><a href='/aprovar/{p[0]}' class='btn btn-small'>Aprovar Cadastro</a></div>" for p in pendentes]) or "<p>Nenhum cadastro aguardando.</p>"
+
+    # === AGENDA GLOBAL PARA O TESTE DO ADMIN ===
+    cur.execute("""
+        SELECT a.id, pac.nome, psi.nome, a.data_hora, a.status_sessao 
+        FROM agenda a 
+        JOIN usuarios pac ON a.paciente_id = pac.id 
+        JOIN usuarios psi ON a.psicologa_id = psi.id 
+        ORDER BY a.data_hora ASC LIMIT 10;
+    """)
+    agenda_global = cur.fetchall()
+    
+    html_agenda_global = "".join([
+        f"<div class='mensagem-box' style='display:flex; justify-content:space-between; align-items:center;'>"
+        f"<div><p style='margin:0;'><strong>{ag[1]} (Pac.) x Dra. {ag[2]}</strong><br>"
+        f"<span style='font-size: 0.8rem;'>{ag[3].strftime('%d/%m/%Y %H:%M') if ag[3] else 'S/D'} | Status: {ag[4]}</span></p></div>"
+        f"<a href='/sessao_video/{ag[0]}?uid=1&perfil=admin' class='btn btn-small' style='background-color:#4CAF50;'>Entrar no Vídeo (Teste)</a>"
+        f"</div>" for ag in agenda_global
+    ]) or "<p>Nenhuma sessão registrada na clínica.</p>"
+    # ==========================================
+
     cur.close(); conn.close()
-    html = f"""<div class="alerta">Painel Administrativo Mestre</div><div class="card"><h2>Aprovações Pendentes</h2>{html_pendentes}</div><a href="/" class="btn btn-outline" style="margin-bottom:30px;">Sair do Painel Admin</a>"""
+    
+    html = f"""
+    <div class="alerta">Painel Administrativo Mestre</div>
+    
+    <div class="card">
+        <h2>Aprovações Pendentes</h2>
+        <p style="font-family:Arial; font-size:0.9rem; color:#5c3e30;">Libere o acesso dos pacientes e psicólogas.</p>
+        {html_pendentes}
+    </div>
+
+    <!-- MÓDULO DE TESTE DA AGENDA GLOBAL -->
+    <div class="card" style="border-left: 6px solid #4CAF50;">
+        <h2 style="color: #4CAF50;">Agenda Global e Teste de Vídeo</h2>
+        <p style="font-family:Arial; font-size:0.9rem; margin-bottom: 15px;">Acompanhe as sessões e entre nas salas em modo de observação para testes.</p>
+        {html_agenda_global}
+    </div>
+
+    <div class="card">
+        <h2>Atalhos de Gestão e Comunicação</h2>
+        <form method="POST" style="margin-bottom: 20px;"><input type="hidden" name="acao" value="campanha">
+            <label>Disparar mensagem/campanha para toda a clínica:</label>
+            <textarea name="mensagem" required></textarea>
+            <button type="submit" class="btn">Publicar Campanha Geral</button>
+        </form>
+    </div>
+
+    <a href="/" class="btn btn-outline" style="margin-bottom:30px;">Sair do Painel Admin</a>
+    """
     return render_template_string(TEMPLATE_UNICO, titulo="Admin", conteudo=html, script_popup="")
 
-@app.route('/aprovar/<int:user_id>', methods=['POST'])
+@app.route('/aprovar/<int:user_id>')
 def aprovar_usuario(user_id):
     conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("UPDATE usuarios SET status = 'ativo' WHERE id = %s;", (user_id,))
-    conn.commit()
-    cur.close(); conn.close()
+    if conn:
+        cur = conn.cursor()
+        cur.execute("UPDATE usuarios SET status = 'ativo' WHERE id = %s;", (user_id,))
+        conn.commit()
+        cur.close(); conn.close()
     return redirect(url_for('area_admin'))
 
 if __name__ == '__main__':
