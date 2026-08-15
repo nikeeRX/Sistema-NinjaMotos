@@ -279,18 +279,24 @@ def sala_video(sessao_id):
     
     btn_acao = ""
     texto_teste = ""
+    aviso_jitsi = ""
+
     if perfil == 'psicologa':
         btn_acao = '<input type="hidden" name="acao" value="finalizar"><button type="submit" class="btn" style="background-color: #990000; color: white; border: none;">Encerrar e Marcar como Atendimento Realizado</button>'
+        aviso_jitsi = "<p style='color: #990000; font-size: 0.85rem; font-family: Arial; margin-bottom: 15px;'><b>Aviso de Segurança:</b> Como você é a profissional, o servidor pedirá para você clicar em <i>'Eu sou o anfitrião'</i> e logar com seu Google para abrir a porta para o paciente.</p>"
     elif perfil == 'admin':
         btn_acao = f'<a href="/admin" class="btn btn-outline" style="width: 100%;">Sair do Modo de Teste (Admin)</a>'
         texto_teste = " - MODO TESTE (ADMIN)"
+        aviso_jitsi = "<p style='color: #990000; font-size: 0.85rem; font-family: Arial; margin-bottom: 15px;'><b>Aviso de Teste:</b> Clique em <i>'Eu sou o anfitrião'</i> e logue no Google para destrancar a sala, permitindo que a aba do paciente consiga entrar sem pedir senha.</p>"
     else:
         btn_acao = f'<a href="/paciente/{uid}" class="btn btn-outline" style="width: 100%;">Sair da Sala de Espera</a>'
 
     html = f"""
     <div class="card" style="max-width: 1000px; margin: 0 auto; text-align: center;">
         <h2 style="margin-bottom: 5px; color: {'#990000' if perfil == 'admin' else '#3A261D'};">Sessão por Vídeo{texto_teste}</h2>
-        <p style="margin-bottom: 20px; font-family: Arial;">Status da Sessão: <strong style="color: #4CAF50;">{status_atual}</strong></p>
+        <p style="margin-bottom: 10px; font-family: Arial;">Status da Sessão: <strong style="color: #4CAF50;">{status_atual}</strong></p>
+        
+        {aviso_jitsi}
         
         <div id="meet" style="width: 100%; height: 500px; background-color: #111; border-radius: 8px; overflow: hidden; margin-bottom: 20px; border: 2px solid #E8D5D0;"></div>
         
